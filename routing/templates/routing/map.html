@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fuel Route Optimizer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root { --ink:#13233b; --muted:#5b6b82; --line:#e3e8f0; --accent:#1f6feb; --bg:#f5f7fb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--ink); background:var(--bg); }
+    header { padding:14px 20px; background:#fff; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    header h1 { font-size:16px; margin:0 16px 0 0; letter-spacing:.2px; }
+    input { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; min-width:170px; }
+    button { padding:8px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:14px; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:default; }
+    #wrap { display:flex; height:calc(100vh - 59px); }
+    #map { flex:1; }
+    #side { width:340px; max-width:42vw; overflow-y:auto; background:#fff; border-left:1px solid var(--line); padding:16px; }
+    .stat { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px dashed var(--line); font-size:14px; }
+    .stat b { font-variant-numeric: tabular-nums; }
+    .stop { padding:10px 0; border-bottom:1px solid var(--line); font-size:13px; }
+    .stop .nm { font-weight:600; }
+    .stop .sub { color:var(--muted); margin-top:2px; }
+    .pill { display:inline-block; background:#eef3ff; color:var(--accent); border-radius:999px; padding:1px 8px; font-size:11px; margin-left:6px; }
+    .err { color:#b42318; background:#fef3f2; border:1px solid #fecdc9; padding:10px; border-radius:8px; font-size:13px; }
+    .muted { color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⛽ Fuel Route Optimizer</h1>
+    <input id="start" value="{{ start }}" placeholder="Start (e.g. Seattle, WA)" />
+    <input id="finish" value="{{ finish }}" placeholder="Finish (e.g. Miami, FL)" />
+    <button id="go">Plan route</button>
+    <span id="status" class="muted"></span>
+  </header>
+  <div id="wrap">
+    <div id="map"></div>
+    <div id="side"><p class="muted">Enter a start and finish, then “Plan route”.</p></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([39.5, -98.35], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
+    let layer = L.layerGroup().addTo(map);
+    const $ = (id) => document.getElementById(id);
+
+    async function plan() {
+      const start = $('start').value.trim(), finish = $('finish').value.trim();
+      if (!start || !finish) return;
+      $('go').disabled = true; $('status').textContent = 'Planning…';
+      layer.clearLayers();
+      try {
+        const url = `/api/route/?start=${encodeURIComponent(start)}&finish=${encodeURIComponent(finish)}`;
+        const t0 = performance.now();
+        const res = await fetch(url);
+        const data = await res.json();
+        const ms = Math.round(performance.now() - t0);
+        $('status').textContent = `${ms} ms`;
+        render(data);
+      } catch (e) {
+        $('side').innerHTML = `<div class="err">Request failed: ${e}</div>`;
+      } finally { $('go').disabled = false; }
+    }
+
+    function render(d) {
+      const side = $('side');
+      if (d.error && !d.feasible) {
+        side.innerHTML = `<div class="err">${d.error}</div>`;
+      }
+      if (d.route && d.route.geojson) {
+        const line = L.geoJSON({ type:'Feature', geometry:d.route.geojson },
+          { style:{ color:'#1f6feb', weight:5, opacity:.8 } }).addTo(layer);
+        map.fitBounds(line.getBounds(), { padding:[40,40] });
+      }
+      if (d.start) L.marker([d.start.lat, d.start.lon]).addTo(layer).bindPopup('Start');
+      if (d.finish) L.marker([d.finish.lat, d.finish.lon]).addTo(layer).bindPopup('Finish');
+
+      let html = '';
+      if (d.fuel) {
+        html += `<div class="stat"><span>Distance</span><b>${d.route.total_distance_miles} mi</b></div>`;
+        html += `<div class="stat"><span>Drive time</span><b>${d.route.estimated_drive_time_hours} h</b></div>`;
+        html += `<div class="stat"><span>Total fuel</span><b>${d.fuel.total_gallons} gal</b></div>`;
+        html += `<div class="stat"><span>Fuel cost</span><b>$${d.fuel.total_cost_usd.toLocaleString()}</b></div>`;
+        html += `<div class="stat"><span>Fuel stops</span><b>${d.fuel.number_of_stops}</b></div>`;
+      }
+      (d.fuel_stops || []).forEach((s, i) => {
+        if (s.lat && s.lon) {
+          L.circleMarker([s.lat, s.lon], { radius:7, color:'#fff', weight:2, fillColor:'#16a34a', fillOpacity:1 })
+            .addTo(layer)
+            .bindPopup(`<b>${s.name}</b><br>${s.city}, ${s.state}<br>$${s.price_per_gallon}/gal · ${s.gallons_purchased} gal`);
+        }
+        const topup = s.pre_trip_topup ? '<span class="pill">pre-trip top-up</span>' : '';
+        html += `<div class="stop"><div class="nm">${i+1}. ${s.name} ${topup}</div>
+          <div class="sub">${s.city}, ${s.state} · mile ${s.miles_into_trip}</div>
+          <div class="sub">$${s.price_per_gallon}/gal · ${s.gallons_purchased} gal · $${s.leg_cost_usd}</div></div>`;
+      });
+      side.innerHTML = html || side.innerHTML;
+    }
+
+    $('go').addEventListener('click', plan);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Enter') plan(); });
+  </script>
+</body>
+</html>

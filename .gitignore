@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+db.sqlite3
+data/stations_cache.npz
+.env
+.venv/
+venv/
