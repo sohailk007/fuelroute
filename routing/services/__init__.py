@@ -47,5 +47,13 @@ def plan_trip(start_text: str, finish_text: str) -> TripResult:
         total_distance_miles=route.distance_miles,
         range_miles=settings.VEHICLE_RANGE_MILES,
         mpg=settings.VEHICLE_MPG,
+        origin_meta={
+            "name": f"Departure ({start_text})",
+            "address": None,
+            "city": None,
+            "state": None,
+            "lat": start[0],
+            "lon": start[1],
+        },
     )
     return TripResult(start=start, finish=finish, route=route, plan=plan)

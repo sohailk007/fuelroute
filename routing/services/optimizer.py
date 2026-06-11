@@ -110,6 +110,7 @@ def optimal_fuel_plan(
     total_distance_miles: float,
     range_miles: float,
     mpg: float,
+    origin_meta: dict | None = None,
 ) -> FuelPlan:
     """Minimise total fuel cost for the trip.
 
@@ -118,8 +119,12 @@ def optimal_fuel_plan(
     * Tank holds ``range_miles`` of range; ``mpg`` converts miles<->gallons.
     * The whole trip's fuel is paid for: ``total_gallons = distance / mpg``.
     * Refuelling is only possible at the supplied stations.
-    * Departure: the vehicle is topped up before leaving at the cheapest stop
-      within tank range of the origin, so every mile of the trip is costed.
+    * Departure is modelled as a virtual stop at mile 0, priced at the *nearest*
+      reachable station -- i.e. you fill up before leaving at the closest truck
+      stop you could realistically reach, not at the cheapest one far down the
+      route. ``origin_meta`` (the trip's start point) labels that stop; the
+      greedy is then free to buy only the minimum there and save the rest for
+      cheaper stations ahead.
     * No leg (origin->first stop, stop->stop, last stop->destination) may exceed
       the tank range, otherwise the trip is infeasible.
 
@@ -139,9 +144,11 @@ def optimal_fuel_plan(
             "No fuel stations found within the route corridor.",
         )
 
-    # Synthetic origin stop: the pre-departure top-up, priced at the cheapest
-    # station reachable on the first tank. This makes every mile costed and
-    # lets the rest of the loop treat the origin uniformly.
+    # Synthetic departure stop at mile 0, priced at the NEAREST reachable
+    # station: you fill up before leaving at the closest truck stop you could
+    # actually get to, rather than magically paying the cheapest price found
+    # hundreds of miles away. The greedy below can still buy only the minimum
+    # here and save the rest for cheaper stations ahead.
     reachable_from_origin = [c for c in candidates if c.position_miles <= range_miles]
     if not reachable_from_origin:
         return FuelPlan(
@@ -149,14 +156,14 @@ def optimal_fuel_plan(
             f"First fuel station is {candidates[0].position_miles:.0f} mi away, "
             f"beyond the {range_miles:.0f} mi range.",
         )
-    origin_price = min(c.price for c in reachable_from_origin)
-    origin_meta = next(
-        c.meta for c in reachable_from_origin if c.price == origin_price
-    )
+    nearest = min(reachable_from_origin, key=lambda c: c.position_miles)
+    origin_price = nearest.price
+    display_meta = dict(origin_meta) if origin_meta else {"name": "Departure (full tank)"}
+    display_meta["origin_topup"] = True
 
-    # stops[0] is the origin top-up; the rest are real stations ahead of it.
+    # stops[0] is the departure stop; the rest are real stations ahead of it.
     stops: list[CandidateStation] = [
-        CandidateStation(0.0, origin_price, {**origin_meta, "origin_topup": True})
+        CandidateStation(0.0, origin_price, display_meta)
     ]
     stops.extend(c for c in candidates if c.position_miles > 0.0)
     n = len(stops)

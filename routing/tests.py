@@ -33,14 +33,27 @@ class OptimizerTests(TestCase):
         plan = optimal_fuel_plan(stns, 1000, 500, 10)
         self.assertTrue(plan.feasible)
         self.assertAlmostEqual(plan.total_gallons, 100.0)
-        # Hand-computed optimum for this layout.
-        self.assertAlmostEqual(plan.total_cost, 290.0)
+        # Hand-computed optimum (departure priced at the nearest stop, $4):
+        #   0  -> 400  @ $4 -> 40 gal = $160
+        #   400-> 900  @ $3 -> 50 gal = $150
+        #   900->1000  @ $2 -> 10 gal = $20
+        self.assertAlmostEqual(plan.total_cost, 330.0)
 
     def test_prefers_cheaper_reachable_station(self):
-        plan = optimal_fuel_plan([cs(10, 5.0, "pricey"), cs(480, 2.0, "cheap")], 900, 500, 10)
-        # All fuel should be sourced at $2 (cheapest within range of origin).
-        self.assertAlmostEqual(plan.total_cost, 180.0)
-        self.assertTrue(all(s.price == 2.0 for s in plan.stops))
+        # Pricey stop near the origin ($5), cheap stop far along ($2).
+        plan = optimal_fuel_plan(
+            [cs(10, 5.0, "pricey"), cs(480, 2.0, "cheap")], 900, 500, 10
+        )
+        self.assertTrue(plan.feasible)
+        # Departure is priced at the nearest stop ($5); the greedy buys only
+        # enough there to reach the $2 stop, then sources the rest at $2:
+        #   0  -> 480 @ $5 -> 48 gal = $240
+        #   480-> 900 @ $2 -> 42 gal = $84
+        self.assertAlmostEqual(plan.total_cost, 324.0)
+        # It does NOT top off at the pricey origin (a full tank is 50 gal);
+        # it buys just enough (48 gal) to coast to the cheaper station.
+        self.assertLess(plan.stops[0].gallons, 50.0)
+        self.assertIn(2.0, [s.price for s in plan.stops])
 
     def test_infeasible_when_gap_exceeds_range(self):
         plan = optimal_fuel_plan([cs(50, 3.0), cs(700, 3.0)], 1000, 500, 10)

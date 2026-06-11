@@ -88,14 +88,15 @@
         html += `<div class="stat"><span>Fuel stops</span><b>${d.fuel.number_of_stops}</b></div>`;
       }
       (d.fuel_stops || []).forEach((s, i) => {
+        const place = [s.city, s.state].filter(Boolean).join(', ') || 'Trip start';
         if (s.lat && s.lon) {
           L.circleMarker([s.lat, s.lon], { radius:7, color:'#fff', weight:2, fillColor:'#16a34a', fillOpacity:1 })
             .addTo(layer)
-            .bindPopup(`<b>${s.name}</b><br>${s.city}, ${s.state}<br>$${s.price_per_gallon}/gal · ${s.gallons_purchased} gal`);
+            .bindPopup(`<b>${s.name}</b><br>${place}<br>$${s.price_per_gallon}/gal · ${s.gallons_purchased} gal`);
         }
         const topup = s.pre_trip_topup ? '<span class="pill">pre-trip top-up</span>' : '';
         html += `<div class="stop"><div class="nm">${i+1}. ${s.name} ${topup}</div>
-          <div class="sub">${s.city}, ${s.state} · mile ${s.miles_into_trip}</div>
+          <div class="sub">${place} · mile ${s.miles_into_trip}</div>
           <div class="sub">$${s.price_per_gallon}/gal · ${s.gallons_purchased} gal · $${s.leg_cost_usd}</div></div>`;
       });
       side.innerHTML = html || side.innerHTML;

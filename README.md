@@ -95,19 +95,35 @@ curl "http://127.0.0.1:8000/api/route/?start=Los%20Angeles,%20CA&finish=Houston,
   },
   "fuel_stops": [
     {
+      "name": "Departure (Los Angeles, CA)",
+      "address": null,
+      "city": null, "state": null,
+      "lat": 34.0522, "lon": -118.2437,
+      "price_per_gallon": 3.499,
+      "miles_into_trip": 0.0,
+      "gallons_purchased": 12.4,
+      "leg_cost_usd": 43.39,
+      "pre_trip_topup": true
+    },
+    {
       "name": "Some Truckstop",
       "address": "123 Interstate Dr",
       "city": "Blythe", "state": "CA",
       "lat": 33.61, "lon": -114.59,
       "price_per_gallon": 3.219,
-      "miles_into_trip": 0.0,
-      "gallons_purchased": 22.7,
-      "leg_cost_usd": 73.07,
-      "pre_trip_topup": true
+      "miles_into_trip": 124.0,
+      "gallons_purchased": 38.2,
+      "leg_cost_usd": 122.97,
+      "pre_trip_topup": false
     }
   ]
 }
 ```
+
+> The first entry in `fuel_stops` is always the **departure** (`pre_trip_topup: true`):
+> a virtual stop at mile 0, at the trip's start coordinates, priced at the nearest
+> reachable station. Every entry after it is a real truck stop. Filter on
+> `pre_trip_topup` if you only want the physical stops.
 
 **Status codes**
 
@@ -160,8 +176,10 @@ The request flows through four steps, and **only step 2 touches the network**:
    at each station, if a **cheaper** station is reachable on the current tank,
    buy just enough to coast there; otherwise fill up and jump to the cheapest
    station within range. The whole trip's gallons (`distance / mpg`) are priced;
-   a synthetic origin "top-up" at mile 0 (priced at the cheapest station within
-   range of the start) ensures the very first miles are costed too.
+   departure is a virtual stop at mile 0 priced at the **nearest reachable**
+   station (you fill up at the closest truck stop before leaving), so the very
+   first miles are costed realistically rather than at some far-off bargain
+   price.
 
 ---
 
@@ -194,10 +212,15 @@ These are the judgement calls the spec left open. They're all centralised in
   approximation. Tighten `FUEL_CORRIDOR_MILES` if you want stops to hug the
   highway more closely.
 
-- **Cost model.** The vehicle is assumed to start near-empty and pay for every
-  mile of the trip: `total_gallons = total_distance / 10`. The greedy buys fuel
-  only at real stations in the corridor, plus the mile-0 origin top-up so the
-  first leg isn't free. This yields a single, consistent total-cost figure.
+- **Cost model & departure.** The vehicle pays for every mile of the trip:
+  `total_gallons = total_distance / 10`. Departure is modelled as a virtual
+  stop at mile 0, priced at the **nearest reachable station** — you fill up
+  before leaving at the closest truck stop you could realistically reach, *not*
+  at the cheapest one hundreds of miles down the route. The greedy is then free
+  to buy only the minimum at that first (often pricier) stop and source the rest
+  at genuinely cheap stations later. This stop is labelled `Departure (<start>)`,
+  carries `pre_trip_topup: true`, and sits at the trip's actual start
+  coordinates — so it never masquerades as a real station in a far-away city.
 
 - **Feasibility.** A trip is infeasible if any two consecutive reachable
   stations (or the origin-to-first-station gap) exceed the 500-mile range, or if
