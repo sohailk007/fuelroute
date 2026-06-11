@@ -91,6 +91,7 @@ There is also **`GET /map/?start=...&finish=...`** — a Leaflet page that draws
 
 ## ⚙️ How it works
 
+```mermaid
 flowchart LR
     A["📍 Geocode start/finish<br/>(offline, 0 calls)"] --> B["🛣️ Fetch route from OSRM<br/>(the single API call)"]
     B --> C["⛽ Keep stations within<br/>25 mi of the route"]
